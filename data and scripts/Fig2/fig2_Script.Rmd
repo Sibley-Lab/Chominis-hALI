@@ -1,0 +1,101 @@
+---
+title: '<center>Figure 2 script<center>'
+author: "<center> Valentin Greigert <center><br>"
+date: "<center> _`r Sys.Date()`_ <center>"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(tinytex)
+library(knitr)
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r libraries}
+#load('.R_data')
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(ggsci)
+library(ggpubr)
+```
+
+# R packages used
+
+A variety of R packages was used for this analysis.  All graphics and data wrangling were handled using the [tidyverse suite of packages](https://www.tidyverse.org/).  All packages used are available from the Comprehensive R Archive Network (CRAN), Bioconductor.org, or Github.  
+
+***
+
+# Cryptosporidium growth
+
+## Data preparation
+
+```{r Crypto growth data prep}
+dat <- read.csv(file = 'fig2_crypto_growth_res.csv', stringsAsFactors = F)
+dat$Time <- as.factor(dat$Time)
+dat$Species <- as.factor(dat$Species) %>% 
+  factor(levels = c('Cp', 'Ch'))
+dat$Replicate <- as.factor(dat$Replicate)
+```
+
+## Plot
+
+```{r Crypto growth plot}
+growth_plot <- ggline(
+  dat,
+  'Time',
+  'Fold.Change',
+  color = 'Replicate',
+  facet.by = 'Species',
+  nrow = 2,
+  ncol = 1,
+  panel.labs = list(
+    Species = c('C. parvum', 'C. hominis')
+  ),
+  panel.labs.font = list(face = 'italic'),
+  scales = 'free',
+  palette = get_palette(palette = 'jco',
+                        k = 3),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    shape = 21,
+    fill = 'white',
+    jitter = 0.05,
+    size = 2
+  ),
+  xlab = 'Time post-infection (d)',
+  ylab = 'Fold growth',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10
+  )
+) %>%
+  ggpar(legend = 'right')
+
+
+print(growth_plot)
+```
+
+***
+
+# Session info
+
+The output from running 'sessionInfo' is shown below and details all packages and version necessary to reproduce the results in this report.
+
+```{r session info}
+sessionInfo()
+```

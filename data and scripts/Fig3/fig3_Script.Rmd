@@ -1,0 +1,316 @@
+---
+title: '<center>Figure 3 script<center>'
+author: "<center> Valentin Greigert <center><br>"
+date: "<center> _`r Sys.Date()`_ <center>"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+    latex_engine: xelatex
+---
+  
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(tinytex)
+library(knitr)
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r libraries}
+#load('.R_data')
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+library(rstatix)
+library(gridExtra)
+library(patchwork)
+library(DT)
+```
+
+# R packages used
+
+A variety of R packages was used for this analysis.  All graphics and data wrangling were handled using the [tidyverse suite of packages](https://www.tidyverse.org/).  All packages used are available from the Comprehensive R Archive Network (CRAN), Bioconductor.org, or Github.  
+
+***
+
+# IJOQ
+
+## Data preparation
+
+```{r IJOQ data prep}
+IJOQ <- read_csv('fig3_IJOQ_res.csv')
+
+IJOQ$inf <- as.factor(IJOQ$inf) %>% 
+  factor(levels = c('NI', 'I'))
+
+IJOQ$analyte <- as.factor(IJOQ$analyte) %>% 
+  factor(levels = c('E-cadherin','ZO-1'))
+
+IJOQ$model <- as.factor(IJOQ$model) %>% 
+  factor(levels = c('HCT-8', 'hALI'))
+```
+
+## Statistics
+
+```{r IJOQ statistics - Shapiro}
+IJOQ_shapiro <- group_by(IJOQ, inf, analyte, model) %>%
+  shapiro_test(IJOQ)
+
+datatable(IJOQ_shapiro)
+```
+
+```{r IJOQ statistics - Wilcoxon}
+IJOQ_wilcoxon <-
+  group_by(IJOQ, analyte, model) %>% 
+  wilcox_test(IJOQ~inf) %>%
+  add_significance() %>%
+  add_xy_position(x = 'analyte') 
+
+datatable(IJOQ_wilcoxon)
+```
+
+## Plot
+
+```{r IJOQ Plot}
+IJOQ_plot <- ggbarplot(
+  IJOQ,
+  'analyte',
+  'IJOQ',
+  color = 'black',
+  fill = 'inf',
+  facet.by = c('model'),
+  position = position_dodge(.85),
+  add = c('mean_se', 'jitter'),
+  error.plot = 'upper_errorbar',
+  add.params = list(
+    shape = 21,
+    fill = 'inf',
+    jitter = .02
+  ),
+  xlab = FALSE,
+  ylab = 'IJOQ',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 8)
+) %>%
+  ggpar(legend = 'none',
+        x.text.angle = 0) +
+  stat_pvalue_manual(
+    IJOQ_wilcoxon,
+    label = 'p.signif',
+    tip.length = 0.03,
+    hide.ns = F,
+    remove.bracket = F,
+    bracket.nudge.y = .003,
+    size = 2
+  ) +
+  scale_fill_brewer(labels = c(
+    'No infection',
+    expression(paste(italic('C. parvum')))),
+    palette = 'Paired'
+  )
+
+print(IJOQ_plot)
+```
+
+***
+
+# TEER
+
+## Data preparation
+
+```{r TEER data prep}
+TEER <-
+  read.csv(file = 'fig3_TEER_res.csv', stringsAsFactors = F)
+
+TEER$time <- as.factor(TEER$time) %>%
+  factor(levels = c('4', '24'))
+
+TEER$condition <- as.factor(TEER$condition) %>%
+  factor(levels = c('No infection', 'C. parvum', 'C. hominis'))
+
+TEER$model <- as.factor(TEER$model) %>%
+  factor(levels = c("HCT-8", "hALI"))
+```
+
+## Statistics
+
+```{r TEER statistics - Shapiro}
+TEER_shapiro <- TEER %>%
+  group_by(model, condition, time) %>% 
+  shapiro_test(adjust_TEER)
+
+datatable(TEER_shapiro)
+```
+```{r TEER statistics - Kruskal}
+TEER_kruskal <- TEER %>%
+  group_by(time, model) %>%
+  kruskal_test(adjust_TEER ~ condition)
+
+datatable(TEER_kruskal)
+```
+```{r TEER statistics - Dunn}
+TEER_dunn <- TEER %>%
+  group_by(time, model) %>%
+  dunn_test(adjust_TEER ~ condition) %>%
+  add_xy_position(x = 'time', dodge = .85)
+
+datatable(TEER_dunn)
+```
+
+## Plot
+
+```{r TEER plot}
+TEER_plot <- ggbarplot(
+  TEER,
+  'time',
+  'adjust_TEER',
+  fill = 'condition',
+  color = 'black',
+  position = position_dodge(.85),
+  facet.by = "model",
+  add = c('mean_se', 'jitter'),
+  error.plot = 'upper_errorbar',
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'condition',
+    width = .3,
+    jitter = .1
+  ),
+  xlab = FALSE,
+  ylab = 'TEER (Ω.cm2)',
+  legend.title = '',
+  # title = 'TEER in hALI infected with Cp or Ch (E68 + E69)',
+  ggtheme = theme_minimal(base_size = 8)
+) %>%
+  ggpar(legend = "top") +
+  scale_fill_brewer(labels = c("No infection",
+                               expression(italic("C. parvum")),
+                               expression(italic('C. hominis'))
+                               ),
+                    palette = 'Paired')
+
+
+TEER_plot <- TEER_plot +
+  stat_pvalue_manual(
+    TEER_dunn,
+    label = 'p.adj.signif',
+    tip.length = 0.01,
+    hide.ns = T,
+    bracket.nudge.y = -.1,
+    step.group.by = 'time'
+  )
+
+print(TEER_plot)
+```
+
+***
+
+# Dextran
+
+## Data preparation
+
+```{r dextran data prep}
+dextran <-
+  read.csv(file = 'fig3_dextran_res.csv', stringsAsFactors = F)
+
+dextran$time <- as.factor(dextran$time) %>% 
+  factor(levels = c('4', '24'))
+
+dextran$condition <- as.factor(dextran$condition) %>% 
+  factor(levels = c('No infection', 'C. parvum', 'C. hominis'))
+
+dextran$model <- as.factor(dextran$model) %>% 
+  factor(levels = c('HCT-8', 'hALI'))
+```
+ ## Statistics
+ 
+```{r dextran statistics - Shapiro}
+dextran_shapiro <- dextran %>%
+  group_by(model, condition, time) %>% 
+  shapiro_test(mean_conc)
+
+datatable(dextran_shapiro)
+```
+```{r dextran statistics - Kruskal}
+dextran_kruskal <- dextran %>%
+  group_by(time, model) %>%
+  kruskal_test(mean_conc ~ condition)
+
+datatable(dextran_kruskal)
+```
+```{r dextran statistics - Dunn}
+dextran_dunn <- dextran %>%
+  group_by(time, model) %>%
+  dunn_test(mean_conc ~ condition) %>%
+  add_xy_position(x = 'time', dodge = .85)
+
+datatable(dextran_dunn)
+```
+```{r dextran plot}
+dextran_plot <- ggbarplot(
+  dextran,
+  'time',
+  'mean_conc',
+  fill = 'condition',
+  color = 'black',
+  facet.by = 'model',
+  palette = brewer.pal(5, 'Paired'),
+  position = position_dodge(.85),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'condition',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  xlab = 'Time post-infection (h)',
+  ylab = 'Dextran concentration (mg/l)',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 8)
+) %>%
+  ggpar(legend = 'none')
+
+dextran_plot <- dextran_plot +
+  stat_pvalue_manual(
+    dextran_dunn,
+    label = 'p.adj.signif',
+    tip.length = 0.01,
+    hide.ns = T,
+    step.group.by = 'time'
+  )
+
+print(dextran_plot)
+```
+
+***
+
+# Figure building
+
+```{r fig building}
+(TEER_plot + plot_spacer()) /
+(dextran_plot + IJOQ_plot)
+```
+
+***
+
+# Session info
+
+The output from running 'sessionInfo' is shown below and details all packages and version necessary to reproduce the results in this report.
+
+```{r session info}
+sessionInfo()
+```
