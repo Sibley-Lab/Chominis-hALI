@@ -1,0 +1,414 @@
+---
+title: '<center>Figure 6 script<center>'
+author: "<center> Valentin Greigert <center><br>"
+date: "<center> _`r Sys.Date()`_ <center>"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(tinytex)
+library(knitr)
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r libraries}
+#load('.R_data')
+library(multcomp)
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+library(ggtext)
+library(rstatix)
+library(gridExtra)
+library(outliers)
+library(DT)
+library(patchwork)
+```
+
+
+# R packages used
+
+A variety of R packages was used for this analysis.  All graphics and data wrangling were handled using the [tidyverse suite of packages](https://www.tidyverse.org/).  All packages used are available from the Comprehensive R Archive Network (CRAN), Bioconductor.org, or Github.  
+
+***
+
+# RV growth results
+
+## Data preparation
+
+```{r RV growth data prep}
+dat <- read.csv(file = 'fig6_RV_growth_res.csv')
+dat$Time <- as.factor(dat$Time) %>%
+  factor(levels = c('24', '48'))
+dat$Crypto <- as.factor(dat$Crypto) %>%
+  factor(levels = c('No coinfection', 'Coinfection with C. parvum'))
+dat$analyte <- as.factor(dat$analyte)
+
+RV_dat <- subset(dat, analyte == 'RV')
+```
+
+## Statistics
+
+```{r RV growth - Shapiro}
+RV_shapiro <- subset(dat, Time == 48) %>% 
+  group_by(Crypto) %>% 
+  shapiro_test(fold)
+
+datatable(RV_shapiro)
+```
+
+```{r RV growth - Wilcoxon}
+RV_wilcoxon <- subset(RV_dat, Time == '48') %>%
+  group_by(Time) %>% 
+  wilcox_test(fold ~ Crypto)  %>%
+  add_significance() %>% 
+  add_xy_position(x = 'Time', dodge = .75)
+
+RV_wilcoxon$xmin <- RV_wilcoxon$xmin-1
+RV_wilcoxon$xmax <- RV_wilcoxon$xmax-1
+
+datatable(RV_wilcoxon)
+```
+
+## Plot
+
+```{r RV growth plot}
+
+RV_plot <- ggbarplot(
+  subset(RV_dat, Time == '48'),
+  'Time',
+  'fold',
+  fill = 'Crypto',
+  color = 'black',
+  palette = brewer.pal(n = 3, name = 'Paired'),
+  position = position_dodge(.85),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'Crypto',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  ylab = 'Rotavirus fold growth',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)
+) %>%
+  ggpar(legend = 'none',
+        xlab = FALSE)
+
+RV_plot <- RV_plot +
+  stat_pvalue_manual(
+    RV_wilcoxon,
+    label = 'p.signif',
+    tip.length = .01,
+    hide.ns = T,
+    remove.bracket = F
+  )
+
+print(RV_plot)
+```
+
+***
+
+# IFNL3 results
+
+## Data preparation
+
+```{r IFNL3 growth data prep}
+IFNL3_dat <- subset(dat, analyte == 'IFNL3')
+```
+
+## Statistics
+
+```{r IFNL3 statistics - Shapiro 24h}
+IFNL3_shapiro_24 <-
+  subset(IFNL3_dat, Time == 24 &
+           Crypto == 'Coinfection with C. parvum') %>%
+  group_by(Crypto) %>%
+  shapiro_test(fold)
+
+datatable(IFNL3_shapiro_24)
+```
+
+```{r IFNL3 statistics - Shapiro 48h}
+IFNL3_shapiro_48 <- subset(IFNL3_dat, Time == 48) %>%
+  group_by(Crypto) %>%
+  shapiro_test(fold)
+
+datatable(IFNL3_shapiro_48)
+```
+```{r IFNL3 statistics - Anova}
+IFNL3_anova <- IFNL3_dat %>% 
+  anova_test(fold ~ Crypto)
+
+datatable(IFNL3_anova)
+```
+
+```{r IFNL3 statistics - Tukey HSD}
+IFNL3_tukey <- IFNL3_dat %>%
+  group_by(Time) %>%
+  tukey_hsd(fold ~ Crypto) %>%
+  add_xy_position(x = 'Time', dodge = .75)
+
+datatable(IFNL3_tukey)
+```
+
+## Plot
+
+```{r IFNL3 plot}
+IFNL3_plot <- ggbarplot(
+  IFNL3_dat,
+  'Time',
+  'fold',
+  fill = 'Crypto',
+  color = 'black',
+  position = position_dodge(.85),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'Crypto',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  ylab = 'IFNL3 mRNA fold change',
+  xlab = 'Time since <i>C. parvum</i> infection (h)',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)
+) %>%
+  ggpar(legend = 'top') +
+  scale_fill_brewer(labels = c("No coinfection", expression(paste(
+    "Coinfection with ", italic("C. parvum")
+  ))),
+  palette = "Paired") +
+  theme(axis.title.x = ggtext::element_markdown())
+
+IFNL3_plot <- IFNL3_plot +
+  stat_pvalue_manual(
+    IFNL3_tukey,
+    label = 'p.adj.signif',
+    tip.length = .01,
+    hide.ns = T,
+    remove.bracket = F
+  )
+
+print(IFNL3_plot)
+```
+
+***
+
+# Vaccine strains growth results
+
+## Data preparation
+
+```{r vaccine data prep}
+vaccine_dat <- read.csv(file = 'fig6_vaccine_growth.csv')
+vaccine_dat$Time <- as.factor(vaccine_dat$Time) %>% 
+  factor(levels = c('24'))
+vaccine_dat$Crypto <- as.factor(vaccine_dat$Crypto) %>% 
+  factor(levels = c('NI', 'I'))
+vaccine_dat$analyte <- as.factor(vaccine_dat$analyte)
+vaccine_dat$RV_strain <- as.factor(vaccine_dat$RV_strain)
+
+vaccine_dat <- na.omit(vaccine_dat)
+```
+
+## Statistics
+
+```{r vaccine statistics - Shapiro}
+vaccine_shapiro <- vaccine_dat %>%
+  group_by(Crypto, RV_strain) %>%
+  shapiro_test(fold)
+
+datatable(vaccine_shapiro)
+```
+
+```{r vaccine statistics - Outliers}
+vaccine_outliers <- vaccine_dat %>%
+  group_by(Time, Crypto, RV_strain) %>%
+  identify_outliers(fold)
+
+datatable(vaccine_outliers)
+```
+```{r removing outliers from data}
+vaccine_dat <-
+  vaccine_dat[-which(vaccine_dat$fold == max(subset(
+    vaccine_dat, RV_strain == 'RV5' & Crypto == 'I'
+  )$fold)), ]
+vaccine_dat <-
+  vaccine_dat[-which(vaccine_dat$fold == max(subset(
+    vaccine_dat, RV_strain == 'RV5' & Crypto == 'NI'
+  )$fold)), ]
+vaccine_dat <-
+  vaccine_dat[-which(vaccine_dat$fold == max(subset(
+    vaccine_dat, RV_strain == 'RV5' & Crypto == 'NI'
+  )$fold)), ]
+```
+```{r vaccine statistics - Wilcoxon}
+vaccine_wilcoxon <- vaccine_dat %>%
+  group_by(Time, RV_strain) %>%
+  wilcox_test(fold ~ Crypto) %>%
+  add_xy_position(x = 'Time', dodge = 0.75, scales = 'free') %>%
+  add_significance()
+
+datatable(vaccine_wilcoxon)
+```
+
+## Plot
+
+```{r vaccine Plot}
+vaccine_plot <- ggbarplot(
+  vaccine_dat,
+  'Time',
+  'fold',
+  facet.by = 'RV_strain',
+  scales = 'free_y',
+  fill = 'Crypto',
+  palette = brewer.pal(n = 3, name = "Paired"),
+  color = 'black',
+  position = position_dodge(.85),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'Crypto',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  ylab = 'RV fold growth',
+  # title = 'CXCL1',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)
+) %>%
+  ggpar(legend = 'none',
+        xlab = 'Time since RV infection (h)')
+
+
+vaccine_plot <- vaccine_plot +
+  stat_pvalue_manual(
+    vaccine_wilcoxon,
+    label = "p.signif",
+    tip.length = .01,
+    hide.ns = T,
+    remove.bracket = F
+  )
+
+print(vaccine_plot)
+```
+
+***
+
+# Vaccine growth inhibition
+
+## Data preparation
+
+```{r vaccine inhibition data prep}
+vaccine_inhib <- read.csv(file = 'fig6_vaccine_inhibition_res.csv')
+vaccine_inhib$RV_strain <- as.factor(vaccine_inhib$RV_strain)
+```
+
+## Statistics
+
+```{r vaccine inhibition statistics - Shapiro}
+vaccine_inhib_shapiro <- vaccine_inhib %>% 
+  group_by(RV_strain, Crypto) %>% 
+  shapiro_test(percent_inhib)
+
+datatable(vaccine_inhib_shapiro)
+```
+```{r vaccine inhibition statistics - Wilcoxon}
+vaccine_inhib_wilcoxon <- vaccine_inhib %>% 
+  group_by(Crypto) %>% 
+  wilcox_test(percent_inhib ~ RV_strain) %>% 
+  add_significance() %>% 
+  add_xy_position(x = 'RV_strain')
+
+datatable(vaccine_inhib_wilcoxon)
+```
+## Plot
+
+```{r vaccine inhibition plot}
+vaccine_inhib_plot <- ggbarplot(
+  vaccine_inhib,
+  'RV_strain',
+  'percent_inhib',
+  fill = '#1F78B4',
+  color = 'black',
+  position = position_dodge(.85),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = '#1F78B4',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  ylab = '% of RV growth inhibition',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)) %>% 
+  ggpar(legend = 'top',
+        xlab = '     ') +
+  scale_fill_brewer(labels = c("No coinfection", expression(paste(
+    "Coinfection with ", italic("C. parvum")
+  ))),
+  palette = "Paired")
+
+vaccine_inhib_plot <- vaccine_inhib_plot +
+  stat_pvalue_manual(
+    vaccine_inhib_wilcoxon,
+    label = "p.signif",
+    tip.length = .01,
+    hide.ns = F,
+    remove.bracket = F,
+    bracket.nudge.y = 5,
+    size = 2
+  )
+
+print(vaccine_inhib_plot)
+```
+```{r}
+layout <- '
+AAA
+BBC
+DDE
+'
+
+guide_area() + 
+  IFNL3_plot +
+  RV_plot + 
+  vaccine_plot + 
+  vaccine_inhib_plot + 
+  plot_layout(design = layout, guides = "collect") 
+```
+
+
+***
+
+# Session info
+
+The output from running 'sessionInfo' is shown below and details all packages and version necessary to reproduce the results in this report.
+
+```{r session info}
+sessionInfo()
+```

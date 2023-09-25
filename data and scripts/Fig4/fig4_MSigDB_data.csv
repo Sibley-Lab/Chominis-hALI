@@ -1,0 +1,15 @@
+Term,Adjusted P-value,Strain
+IFN-α response,4.56E-92,C. hominis
+IFN-γ response,3.15E-85,C. hominis
+IL-6/JAK/STAT3 signaling,7.19E-07,C. hominis
+Inflammatory response,1.36E-05,C. hominis
+TNF-α signaling via NF-κB,0.001032461929021,C. hominis
+IL-2/STAT5 signaling,0.005651273291799,C. hominis
+Apoptosis,0.014805854676991,C. hominis
+IFN-α response,1.52E-82,C. parvum
+IFN-γ response,4.17E-80,C. parvum
+Inflammatory response,1.94E-10,C. parvum
+TNF-α signaling via NF-κB,4.11E-07,C. parvum
+Apoptosis,0.000823,C. parvum
+IL-2/STAT5 signaling,0.002139756816113,C. parvum
+IL-6/JAK/STAT3 signaling,0.003540000903043,C. parvum

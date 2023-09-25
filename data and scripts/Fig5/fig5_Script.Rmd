@@ -1,0 +1,290 @@
+---
+title: '<center>Figure 5 script<center>'
+author: "<center> Valentin Greigert <center><br>"
+date: "<center> _`r Sys.Date()`_ <center>"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(tinytex)
+library(knitr)
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r libraries}
+#load('.R_data')
+library(multcomp)
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+library(rstatix)
+library(patchwork)
+library(DT)
+```
+
+# R packages used
+
+A variety of R packages was used for this analysis.  All graphics and data wrangling were handled using the [tidyverse suite of packages](https://www.tidyverse.org/).  All packages used are available from the Comprehensive R Archive Network (CRAN), Bioconductor.org, or Github.  
+
+***
+
+# Interferons results
+
+## Data preparation
+
+
+```{r IFNs data prep}
+IFN_dat <- read.csv(file = 'fig5_IFNs_res.csv')
+IFN_dat$Replicate <- as.factor(IFN_dat$Replicate)
+IFN_dat$Infection <-
+  as.factor(IFN_dat$Infection) %>% factor(levels = c('No infection', 
+                                                     'C. parvum', 
+                                                     'C. hominis'))
+IFN_dat$Time <- as.factor(IFN_dat$Time)
+IFN_dat$Analyte <- as.factor(IFN_dat$Analyte)
+```
+
+## Statistics
+
+```{r IFNs statistics - Kruskal}
+kruskal_IFNs <- IFN_dat %>%
+  group_by(Analyte) %>%
+  kruskal_test(Corr_Value ~ Infection)
+
+datatable(kruskal_IFNs)
+```
+```{r IFNs statistics - Dunn}
+dunn_IFNs <- IFN_dat %>%
+  group_by(Analyte, Time) %>%
+  dunn_test(Corr_Value ~ Infection) %>%
+  add_xy_position(
+    x = 'Time',
+    scales = 'free',
+    dodge = .75,
+    fun = 'max')
+
+datatable(dunn_IFNs)
+```
+
+## Plot
+
+```{r IFNs plot}
+IFN_plot <- ggbarplot(
+  IFN_dat,
+  'Time',
+  'Corr_Value',
+  fill = 'Infection',
+  facet.by = 'Analyte',
+  scales = 'free',
+  nrow = 1,
+  color = 'black',
+  position = position_dodge(.75),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'Infection',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  ylab = 'Concentration (pg/ml)',
+  xlab = 'Time post-infection (h)',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)
+)  %>%
+  ggpar(
+    legend = 'none',
+    orientation = 'vertical',
+    x.text.angle = 0
+    ) +
+  scale_fill_brewer(labels = c(
+    "No infection",
+    expression(paste(italic("C. parvum"))),
+    expression(paste(italic("C. hominis")))),
+    palette = "Paired"
+  )
+
+
+IFN_plot <- IFN_plot +
+  stat_pvalue_manual(
+    dunn_IFNs,
+    label = 'p.adj.signif',
+    tip.length = 0.01,
+    hide.ns = T,
+    step.increase = 0,
+    bracket.nudge.y = -100
+    )
+
+print(IFN_plot)
+```
+
+***
+
+# Cytokines results
+
+## Data preparation
+
+```{r cytokines data prep}
+cyto_dat <- read.csv(file = 'fig5_cytokines_res.csv')
+cyto_dat$Replicate <- as.factor(cyto_dat$Replicate)
+cyto_dat$Infection <-
+  as.factor(cyto_dat$Infection) %>% factor(levels = c('No infection', 
+                                                     'C. parvum', 
+                                                     'C. hominis'))
+cyto_dat$Time <- as.factor(cyto_dat$Time)
+cyto_dat$Analyte <- as.factor(cyto_dat$Analyte)
+```
+
+## Statistics
+
+```{r cytokines statistics - Kruskal}
+kruskal_cyto <- cyto_dat %>%
+  group_by(Analyte) %>%
+  kruskal_test(Value ~ Infection)
+
+datatable(kruskal_cyto)
+```
+```{r cytokines statistics - Dunn}
+dunn_cyto <- cyto_dat %>%
+  group_by(Analyte, Time) %>%
+  dunn_test(Value ~ Infection) %>%
+  add_xy_position(
+    x = 'Time',
+    scales = 'free',
+    dodge = .75, 
+    fun = 'max')
+
+datatable(dunn_cyto)
+```
+## Plot
+
+```{r cytokines plot}
+cyto_plot <- ggbarplot(
+  cyto_dat,
+  'Time',
+  'Value',
+  fill = 'Infection',
+  facet.by = 'Analyte',
+  scales = 'free',
+  nrow = 1,
+  color = 'black',
+  position = position_dodge(.75),
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = 'Infection',
+    jitter = 0.1,
+    width = .3
+  ),
+  error.plot = 'upper_errorbar',
+  ylab = 'Concentration (pg/ml)',
+  xlab = 'Time post-infection (h)',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)
+)  %>%
+  ggpar(
+    legend = 'top',
+    orientation = 'vertical',
+    x.text.angle = 0
+  ) +
+  scale_fill_brewer(labels = c(
+    "No infection",
+    expression(paste(italic("C. parvum"))),
+    expression(paste(italic("C. hominis")))),
+    palette = "Paired"
+  )
+
+
+cyto_plot <- cyto_plot +
+  stat_pvalue_manual(
+    dunn_cyto,
+    label = 'p.adj.signif',
+    tip.length = 0.01,
+    hide.ns = T
+  )
+
+print(cyto_plot)
+```
+
+***
+
+# CSpV1 results
+
+## Data preparation
+
+
+```{r CSpV1 data prep}
+CSpV1_dat <- read.csv(file = 'fig5_CSpV1_res.csv')
+CSpV1_dat$Replicate <- as.factor(CSpV1_dat$Replicate)
+CSpV1_dat$Strain <-
+  as.factor(CSpV1_dat$Strain) %>% factor(levels = c('C. parvum', 
+                                                    'C. hominis'))
+```
+
+## Plot
+
+```{r CSpV1 plot}
+CSpV1_plot <- ggbarplot(
+  CSpV1_dat,
+  'Strain',
+  'CSpV1.GAPDH',
+  fill = '#ffd966',
+  color = 'black',
+  position = position_dodge(.85),
+  add = c('mean_se',
+          'jitter'),
+  error.plot = 'upper_errorbar',
+  add.params = list(
+    color = 'black',
+    shape = 21,
+    fill = '#ffd966',
+    width = .3,
+    jitter = .1
+  ),
+  ylab = 'CSpV1/CpGAPDH',
+  xlab = '    ',
+  ggtheme = theme_minimal(base_size = 10)
+) %>%
+  ggpar(x.text.angle = 45) +
+  scale_x_discrete(labels = c(expression(italic('C. parvum')),
+                              expression(italic('C. hominis'))))
+
+print(CSpV1_plot)
+```
+
+***
+
+# Figure building
+
+```{r fig building}
+cyto_plot / (IFN_plot + CSpV1_plot + 
+               plot_layout(widths = c(4, 1)))
+```
+
+***
+
+# Session info
+
+The output from running 'sessionInfo' is shown below and details all packages and version necessary to reproduce the results in this report.
+
+```{r session info}
+sessionInfo()
+```

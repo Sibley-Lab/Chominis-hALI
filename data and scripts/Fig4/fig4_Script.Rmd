@@ -1,0 +1,752 @@
+---
+title: "<center> Fig4 script <center>"
+author: "<center> Valentin Greigert <center><br>"
+date: "<center> _`r Sys.Date()`_ <center>"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(tinytex)
+library(knitr)
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+# Introduction
+
+------------------------------------------------------------------------
+
+# R packages used
+
+A variety of R packages was used for this analysis. All graphics and data wrangling were handled using the [tidyverse suite of packages](https://www.tidyverse.org/). All packages used are available from the Comprehensive R Archive Network (CRAN), Bioconductor.org, or Github.
+
+------------------------------------------------------------------------
+
+# Parasite growth
+
+```{r Parasite growth}
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+
+growth_dat <- read.csv(file = 'fig4_growth_res.csv')
+growth_dat$time <- as.factor(growth_dat$time)
+growth_dat$species <- factor(growth_dat$species,
+                      level = c('No infection', 'C. parvum', 'C. hominis'))
+growth_dat$rep <- as.factor(growth_dat$rep)
+
+growth_plot <- ggline(
+  growth_dat,
+  'time',
+  'fold',
+  color = 'species',
+  add = c('mean_se', 'dotplot'),
+  xlab = 'Time post-infection (h)',
+  ylab = 'Fold growth',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 6)
+) %>%
+  ggpar(legend = 'top') +
+  scale_color_brewer(labels = c(
+    "No infection",
+    expression(paste(italic("C. parvum"))),
+    expression(paste(italic("C. hominis")))),
+    palette = "Paired"
+  )
+
+print(growth_plot)
+```
+
+------------------------------------------------------------------------
+
+# Read mapping
+
+## Aligning raw reads with Kallisto
+
+Raw reads were mapped to the human reference transcriptome using [Kallisto](https://pachterlab.github.io/kallisto/), version 0.46.0. The quality of raw reads, as well as the results of Kallisto mapping are summarized in [this summary report](http://DIYtranscriptomics.github.io/Data/files/multiqc_report.html) generated using [fastqc](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/) and [multiqc](https://multiqc.info/).
+
+------------------------------------------------------------------------
+
+## Importing count data into R
+
+After read mapping with Kallisto, [TxImport](https://bioconductor.org/packages/release/bioc/html/tximport.html) was used to read kallisto outputs into the R environment. Annotation data from Biomart was used to summarize data from transcript-level to gene-level.
+
+```{r TxImport}
+library(tidyverse) # provides access to Hadley Wickham's collection of R packages for data science, which we will use throughout the course
+library(tximport) # package for getting Kallisto results into R
+library(ensembldb) #helps deal with ensembl
+library(EnsDb.Hsapiens.v86) #replace with your organism-specific database package
+
+targets <- read_tsv("study_design.txt")# read in your study design
+targets <- subset(targets, timepoint == 24) %>%
+  subset(infection != 'Ch')
+path <- file.path(targets$id, "abundance.tsv") # set file paths to your mapped data
+tx <- transcripts(EnsDb.Hsapiens.v86, columns = c("tx_id", "gene_name"))
+tx <- as_tibble(tx)
+tx <- dplyr::rename(tx, target_id = tx_id) #change column name
+tx <- dplyr::select(tx, "target_id", "gene_name") #transcrip ID needs to be the first column in the dataframe
+tx_gene <- tximport(
+  path,
+  type = "kallisto",
+  tx2gene = tx,
+  txOut = FALSE,  #determines whether your data represented at transcript or gene level
+  countsFromAbundance = "lengthScaledTPM",
+  ignoreTxVersion = TRUE
+)
+```
+
+------------------------------------------------------------------------
+
+# Preprocessing
+
+## Impact of filtering and normalization
+
+```{r Data Wrangling}
+library(tidyverse)
+library(edgeR)
+library(matrixStats)
+library(cowplot)
+
+#additioning technical replicates results
+tx_gene$abundance[, 1] <-  tx_gene$abundance[, 1] + tx_gene$abundance[, 7]
+tx_gene$abundance[, 2] <-  tx_gene$abundance[, 2] + tx_gene$abundance[, 8]
+tx_gene$abundance[, 3] <-  tx_gene$abundance[, 3] + tx_gene$abundance[, 9]
+tx_gene$abundance[, 4] <-  tx_gene$abundance[, 4] + tx_gene$abundance[, 10]
+tx_gene$abundance[, 5] <-  tx_gene$abundance[, 5] + tx_gene$abundance[, 11]
+tx_gene$abundance[, 6] <-  tx_gene$abundance[, 6] + tx_gene$abundance[, 12]
+
+tx_gene$abundance <- tx_gene$abundance[, 1:6]
+
+tx_gene$counts[, 1] <- tx_gene$counts[, 1] + tx_gene$counts[, 7]
+tx_gene$counts[, 2] <- tx_gene$counts[, 2] + tx_gene$counts[, 8]
+tx_gene$counts[, 3] <- tx_gene$counts[, 3] + tx_gene$counts[, 9]
+tx_gene$counts[, 4] <- tx_gene$counts[, 4] + tx_gene$counts[, 10]
+tx_gene$counts[, 5] <- tx_gene$counts[, 5] + tx_gene$counts[, 11]
+tx_gene$counts[, 6] <- tx_gene$counts[, 6] + tx_gene$counts[, 12]
+
+tx_gene$counts <- tx_gene$counts[, 1:6]
+
+sampleLabels <- c("ni_24_1","cp_24_1","ni_24_2","cp_24_2","ni_24_3","cp_24_3")
+DGEList <- DGEList(tx_gene$counts)
+log2.cpm <- cpm(DGEList, log=TRUE)
+
+log2.cpm.df <- as_tibble(log2.cpm, rownames = "geneID")
+colnames(log2.cpm.df) <- c("geneID", sampleLabels)
+log2.cpm.df.pivot <- pivot_longer(log2.cpm.df, # dataframe to be pivoted
+                                  cols = 2:7, # column names to be stored as a SINGLE variable
+                                  names_to = "samples", # name of that new variable (column)
+                                  values_to = "expression") # name of new variable (column) storing all the values (data)
+
+p1 <- ggplot(log2.cpm.df.pivot) +
+  aes(x=samples, y=expression, fill=samples) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  stat_summary(fun = "median", 
+               geom = "point", 
+               shape = 95, 
+               size = 10, 
+               color = "black", 
+               show.legend = FALSE) +
+  labs(y="log2 expression", x = "sample",
+       title="Log2 Counts per Million (CPM)",
+       subtitle="unfiltered, non-normalized",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+cpm <- cpm(DGEList)
+keepers <- rowSums(cpm>1)>=3 #user defined
+DGEList.filtered <- DGEList[keepers,]
+
+log2.cpm.filtered <- cpm(DGEList.filtered, log=TRUE)
+log2.cpm.filtered.df <- as_tibble(log2.cpm.filtered, rownames = "geneID")
+colnames(log2.cpm.filtered.df) <- c("geneID", sampleLabels)
+log2.cpm.filtered.df.pivot <- pivot_longer(log2.cpm.filtered.df, # dataframe to be pivoted
+                                           cols = 2:7, # column names to be stored as a SINGLE variable
+                                           names_to = "samples", # name of that new variable (column)
+                                           values_to = "expression") # name of new variable (column) storing all the values (data)
+
+p2 <- ggplot(log2.cpm.filtered.df.pivot) +
+  aes(x=samples, y=expression, fill=samples) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  stat_summary(fun = "median", 
+               geom = "point", 
+               shape = 95, 
+               size = 10, 
+               color = "black", 
+               show.legend = FALSE) +
+  labs(y="log2 expression", x = "sample",
+       title="Log2 Counts per Million (CPM)",
+       subtitle="filtered, non-normalized",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+DGEList.filtered.norm <- calcNormFactors(DGEList.filtered, method = "TMM")
+log2.cpm.filtered.norm <- cpm(DGEList.filtered.norm, log=TRUE)
+log2.cpm.filtered.norm.df <- as_tibble(log2.cpm.filtered.norm, rownames = "geneID")
+colnames(log2.cpm.filtered.norm.df) <- c("geneID", sampleLabels)
+log2.cpm.filtered.norm.df.pivot <- pivot_longer(log2.cpm.filtered.norm.df, # dataframe to be pivoted
+                                                cols = 2:7, # column names to be stored as a SINGLE variable
+                                                names_to = "samples", # name of that new variable (column)
+                                                values_to = "expression") # name of new variable (column) storing all the values (data)
+
+p3 <- ggplot(log2.cpm.filtered.norm.df.pivot) +
+  aes(x=samples, y=expression, fill=samples) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  stat_summary(fun = "median", 
+               geom = "point", 
+               shape = 95, 
+               size = 10, 
+               color = "black", 
+               show.legend = FALSE) +
+  labs(y="log2 expression", x = "sample",
+       title="Log2 Counts per Million (CPM)",
+       subtitle="filtered, TMM normalized",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+plot_grid(p1, p2, p3, labels = c('A', 'B', 'C'), label_size = 12)
+```
+
+Filtering was carried out to remove lowly expressed genes. Genes with less than 1 count per million (CPM) in at least 5 or more samples filtered out. This reduced the number of genes from `r nrow(DGEList)` to `r nrow(DGEList.filtered)`.
+
+------------------------------------------------------------------------
+
+## table of filtered and normalized data
+
+```{r Multivariate part 1 (data table)}
+library(tidyverse)
+library(DT)
+library(gt)
+library(plotly)
+
+data.df <- mutate(
+  log2.cpm.filtered.norm.df,
+  NI.AVG = (ni_24_1 + ni_24_2 + ni_24_3) / 3,
+  Cp.AVG = (cp_24_1 + cp_24_2 + cp_24_3) / 3,
+  LogFC = (Cp.AVG - NI.AVG)
+) %>%
+  mutate_if(is.numeric, round, 2)
+
+datatable(data.df[,c(1,8:10)], 
+          extensions = c('KeyTable', "FixedHeader"), 
+          filter = 'top',
+          options = list(keys = TRUE, 
+                         searchHighlight = TRUE, 
+                         pageLength = 10, 
+                         lengthMenu = c("10", "25", "50", "100")))
+
+```
+
+The table shown below includes expression data for `r nrow(DGEList.filtered)` genes. You can sort and search the data directly from the table.
+
+------------------------------------------------------------------------
+
+# PCA plot
+
+```{r Multivariate part 2 (PCA plot)}
+group <- subset(targets, tech_rep == 1)$group %>% as.factor()
+
+pca.res <- prcomp(t(log2.cpm.filtered.norm), scale.=F, retx=T)
+pc.var<-pca.res$sdev^2 # sdev^2 captures these eigenvalues from the PCA result
+pc.per<-round(pc.var/sum(pc.var)*100, 1) 
+pca.res.df <- as_tibble(pca.res$x)
+pca.plot <- ggplot(pca.res.df) +
+  aes(x=PC1, y=PC2, label=sampleLabels, color = group) +
+  geom_point(size=4) +
+  stat_ellipse() +
+  xlab(paste0("PC1 (",pc.per[1],"%",")")) + 
+  ylab(paste0("PC2 (",pc.per[2],"%",")")) +
+  labs(title="PCA plot",
+       caption=paste0("produced on ", Sys.time())) +
+  coord_fixed() +
+  theme_bw()
+
+ggplotly(pca.plot)
+```
+
+------------------------------------------------------------------------
+
+# Volcano plot
+
+```{r DiffGenes part 1 (volcano plot)}
+library(tidyverse)
+library(limma)
+library(edgeR) 
+library(gt)
+library(DT) 
+library(plotly) 
+
+infection <- factor(targets$infection[1:6])
+design <- model.matrix(~0 + infection)
+colnames(design) <- levels(infection)
+
+v.DEGList.filtered.norm <-  voom(DGEList.filtered.norm, design, plot = FALSE)
+fit <- lmFit(v.DEGList.filtered.norm, design)
+contrast.matrix <- makeContrasts(Cp = Cp - NI,
+                                 NI = NI - Cp,
+                                 levels = design)
+
+fits <- contrasts.fit(fit, contrast.matrix)
+ebFit <- eBayes(fits)
+TopHits <- topTable(ebFit, adjust ="BH", coef=1, number=40000, sort.by="logFC")
+
+TopHits.df <- TopHits %>%
+  as_tibble(rownames = "geneID")
+
+vplot <- ggplot(TopHits.df) +
+  aes(y=-log10(adj.P.Val), x=logFC, text = paste("Symbol:", geneID)) +
+  geom_point(size=2) +
+  geom_hline(yintercept = -log10(0.01), linetype="longdash", colour="grey", size=1) +
+  geom_vline(xintercept = 1, linetype="longdash", colour="#BE684D", size=1) +
+  geom_vline(xintercept = -1, linetype="longdash", colour="#2C467A", size=1) +
+  #annotate("rect", xmin = 1, xmax = 12, ymin = -log10(0.01), ymax = 7.5, alpha=.2, fill="#BE684D") +
+  #annotate("rect", xmin = -1, xmax = -12, ymin = -log10(0.01), ymax = 7.5, alpha=.2, fill="#2C467A") +
+  labs(title="Volcano plot",
+       subtitle = "Cutaneous leishmaniasis",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+ggplotly(vplot)
+```
+
+```{r}
+library(EnhancedVolcano)
+
+# using the EnhancedVolcano package
+volcano <- EnhancedVolcano(
+  toptable = TopHits,
+  ylim = c(0, 7.5),
+  lab = rownames(TopHits),
+  x = 'logFC',
+  y = 'adj.P.Val',
+  pCutoff = 0.01,
+  FCcutoff = 1,
+  title = NULL,
+  subtitle = NULL,
+  labSize = 3,
+  axisLabSize = 8,
+  legendLabSize = 8,
+  captionLabSize = 8, 
+) %>% 
+  print()
+
+```
+
+------------------------------------------------------------------------
+
+# Table of DEGs
+
+To identify differentially expressed genes, precision weights were first applied to each gene based on its mean-variance relationship using [VOOM](https://genomebiology.biomedcentral.com/articles/10.1186/gb-2014-15-2-r29), then data was normalized using the [TMM method](https://genomebiology.biomedcentral.com/articles/10.1186/gb-2010-11-3-r25) in [EdgeR](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2796818/). Linear modeling and bayesian stats were employed via [Limma](https://academic.oup.com/nar/article/43/7/e47/2414268) to find genes that were up- or down-regulated in leishmania patients by 4-fold or more, with a false-discovery rate (FDR) of 0.01.
+
+```{r DiffGenes part 2 (DEG table)}
+results <- decideTests(ebFit, method="global", adjust.method="BH", p.value=0.05, lfc=1)
+colnames(v.DEGList.filtered.norm$E) <- sampleLabels
+diffGenes <- v.DEGList.filtered.norm$E[results[,1] !=0,]
+diffGenes.df <- as_tibble(diffGenes, rownames = "geneID")
+datatable(diffGenes.df, 
+          extensions = c('KeyTable', "FixedHeader"), 
+          caption = 'Table 1: DEGs in cutaneous leishmaniasis',
+          options = list(keys = TRUE, searchHighlight = TRUE, pageLength = 10, lengthMenu = c("10", "25", "50", "100"))) %>%
+  formatRound(columns=c(2:11), digits=2)
+```
+
+------------------------------------------------------------------------
+
+# Comparison of gene expression between Cp and Ch-infected cells
+
+## Gene upregulation
+
+```{r}
+library(tidyverse)
+library(ggrepel)
+library(plotly)
+library(ggsci)
+library(ggtext)
+library(ggpubr)
+
+Ch <- read_csv('tophits_upregul_Ch.csv')
+Cp <- read_csv('tophits_upregul_Cp.csv')
+
+merge_rank <- merge(Ch, Cp, all = TRUE)
+merge_rank$logFC_Ch[is.na(merge_rank$logFC_Ch)] <- 0
+merge_rank$logFC_Cp[is.na(merge_rank$logFC_Cp)] <- 0
+merge_rank$adj.P.Val_Ch[is.na(merge_rank$adj.P.Val_Ch)] <- 1
+merge_rank$adj.P.Val_Cp[is.na(merge_rank$adj.P.Val_Cp)] <- 1
+
+Ch_signif <- subset(merge_rank, adj.P.Val_Ch <= .05 & logFC_Ch >= 1)
+Cp_signif <- subset(merge_rank, adj.P.Val_Cp <= .05 & logFC_Cp >= 1)
+
+merge_rank_filtered <- subset(merge_rank, (adj.P.Val_Ch <= .05 & logFC_Ch >= 1) | (adj.P.Val_Cp <= .05 & logFC_Cp >= 1)) %>% 
+  mutate(signif = case_when(
+    adj.P.Val_Ch < .05 & adj.P.Val_Cp <.05 ~ 'Cp & Ch',
+    adj.P.Val_Ch >= .05 & adj.P.Val_Cp <.05 ~ 'Cp',
+    adj.P.Val_Ch < .05 & adj.P.Val_Cp >= .05 ~ 'Ch',
+    TRUE ~ NA_character_)
+  )
+
+write_csv(merge_rank_filtered, 'merge_ranked_filtered_genes.csv')
+
+merge_rank_filtered[merge_rank_filtered == 'Cp'] <- 'Cp-infected cells only'
+merge_rank_filtered[merge_rank_filtered == 'Cp & Ch'] <- 'Cp- & Ch-infected cells'
+
+rank_scatter <- ggscatter(
+  data = merge_rank_filtered,
+  x = 'logFC_Cp',
+  y = 'logFC_Ch',
+  color = 'signif',
+  palette = 'd3',
+  label = 'geneID',
+  font.label = 10,
+  repel = F,
+  xlab = 'log2 FC - <i>C. parvum</i>',
+  ylab = 'log2 FC - <i>C. hominis</i>',
+  ggtheme = theme_minimal(base_size = 11)
+) %>%
+  ggpar(legend = 'top',
+        legend.title = '',
+        font.legend = c(11)) +
+  geom_smooth(color = 'black') +
+  theme(axis.title.x = element_markdown(),
+        axis.title.y = element_markdown())
+
+print(rank_scatter)
+```
+
+## Pathways upregulation (MSigDB)
+
+```{r}
+library(multcomp)
+library(tidyverse)
+library(ggplot2)
+library(RColorBrewer)
+library(ggpubr)
+library(rstatix)
+
+MSigDB_dat <- read.csv(file = 'fig4_MSigDB_data.csv')
+MSigDB_dat$logpval <- -log10(MSigDB_dat$Adjusted.P.value)
+MSigDB_dat$Term <-
+  as.factor(MSigDB_dat$Term) %>% ordered(
+    levels = c(
+      "IFN-α response",
+      "IFN-γ response",
+      "Inflammatory response",
+      "TNF-α signaling via NF-κB",
+      "Apoptosis",
+      "IL-2/STAT5 signaling",
+      "IL-6/JAK/STAT3 signaling"
+    )
+  )
+MSigDB_dat$Strain <- as.factor(MSigDB_dat$Strain)
+
+#Plot
+MSigDB_plot <- ggbarplot(
+  MSigDB_dat,
+  'Term',
+  'logpval',
+  color = 'Black',
+  fill = 'Strain',
+  position = position_dodge(.85),
+  xlab = FALSE,
+  ylab = '-Log10(adg.p.val)',
+  title = FALSE,
+  ggtheme = theme_minimal(base_size = 11)
+) %>%
+  ggpar(
+    legend = "top",
+    legend.title = "",
+    title = FALSE,
+    orientation = "vertical",
+    x.text.angle = 45, 
+    font.legend = c(11),
+    font.xtickslab = c(11)
+) +
+  scale_fill_manual(labels = c(expression(paste(italic("C. hominis"))),
+                               expression(paste(italic("C. parvum")))),
+                               values = c("#b2df8a", "#1f78b4"))
+
+print(MSigDB_plot)
+```
+
+------------------------------------------------------------------------
+
+# Heatmaps and modules
+
+Pearson correlation was used to cluster **`r nrow(diffGenes)`** differentially expressed genes, which were then represented as heatmap with the data scaled by Zscore for each row.
+
+```{r Modules part 1 (heatmap)}
+library(tidyverse)
+library(gplots)
+library(RColorBrewer)
+myheatcolors <- rev(brewer.pal(name="RdBu", n=11))
+clustRows <- hclust(as.dist(1-cor(t(diffGenes), method="pearson")), method="complete") #cluster rows by pearson correlation
+clustColumns <- hclust(as.dist(1-cor(diffGenes, method="spearman")), method="complete")
+module.assign <- cutree(clustRows, k=2)
+module.color <- rainbow(length(unique(module.assign)), start=0.1, end=0.9) 
+module.color <- module.color[as.vector(module.assign)] 
+heatmap.2(diffGenes, 
+          Rowv=as.dendrogram(clustRows), 
+          Colv=as.dendrogram(clustColumns),
+          RowSideColors=module.color,
+          col=myheatcolors, scale='row', labRow=NA,
+          density.info="none", trace="none",  
+          cexRow=1, cexCol=1, margins=c(8,20))
+```
+
+```{r Modules part 2 (upregulated genes)}
+modulePick <- 2 
+myModule_up <- diffGenes[names(module.assign[module.assign %in% modulePick]),] 
+hrsub_up <- hclust(as.dist(1-cor(t(myModule_up), method="pearson")), method="complete") 
+
+heatmap.2(myModule_up, 
+          Rowv=as.dendrogram(hrsub_up), 
+          Colv=NA, 
+          labRow = NA,
+          col=myheatcolors, scale="row", 
+          density.info="none", trace="none", 
+          RowSideColors=module.color[module.assign%in%modulePick], margins=c(8,20))
+
+```
+
+```{r Modules part 3 (downregulated genes)}
+modulePick <- 1 
+myModule_down <- diffGenes[names(module.assign[module.assign %in% modulePick]),] 
+hrsub_down <- hclust(as.dist(1-cor(t(myModule_down), method="pearson")), method="complete") 
+
+heatmap.2(myModule_down, 
+          Rowv=as.dendrogram(hrsub_down), 
+          Colv=NA, 
+          labRow = NA,
+          col=myheatcolors, scale="row", 
+          density.info="none", trace="none", 
+          RowSideColors=module.color[module.assign%in%modulePick], margins=c(8,20))
+```
+
+# GO enrichment
+
+GO enrichment for the `r nrow(TopHits)` genes induced by infection
+
+```{r Functional Enrichment part 1 (gostplot for upregulated genes)}
+library(tidyverse)
+library(limma)
+library(gplots) #for heatmaps
+library(DT) #interactive and searchable tables of our GSEA results
+library(GSEABase) #functions and methods for Gene Set Enrichment Analysis
+library(Biobase) #base functions for bioconductor; required by GSEABase
+library(GSVA) #Gene Set Variation Analysis, a non-parametric and unsupervised method for estimating variation of gene set enrichment across samples.
+library(gprofiler2) #tools for accessing the GO enrichment results using g:Profiler web resources
+library(clusterProfiler) # provides a suite of tools for functional enrichment analysis
+library(msigdbr) # access to msigdb collections directly within R
+library(enrichplot) # great for making the standard GSEA enrichment plots
+gost.res_up <- gost(rownames(myModule_up), organism = "hsapiens", correction_method = "fdr")
+gostplot(gost.res_up, interactive = T, capped = T) #set interactive=FALSE to get plot for publications
+
+```
+
+```{r Functional Enrichment part 2 (gostplot for downregulated genes)}
+gost.res_down <- gost(rownames(myModule_down), organism = "hsapiens", correction_method = "fdr")
+gostplot(gost.res_down, interactive = T, capped = T) #set interactive=FALSE to get plot for publications
+```
+
+# GSEA
+
+```{r Functional Enrichment part 3 (GSEA table)}
+hs_gsea_c8 <-
+  msigdbr(species = "Homo sapiens", # change depending on species your data came from
+          category = "C8") %>% # choose your msigdb collection of interest
+  dplyr::select(gs_name, gene_symbol) #just get the columns corresponding to signature name and gene symbols of genes in each signature
+
+hs_gsea_h <-
+  msigdbr(species = "Homo sapiens", # change depending on species your data came from
+          category = "H") %>% # choose your msigdb collection of interest
+  dplyr::select(gs_name, gene_symbol) #just get the columns corresponding to signature name and gene symbols of genes in each signature
+
+# Now that you have your msigdb collections ready, prepare your data
+# grab the dataframe you made in step3 script
+# Pull out just the columns corresponding to gene symbols and LogFC for at least one pairwise comparison for the enrichment analysis
+data.df.sub <- dplyr::select(data.df, geneID, LogFC)
+data.gsea <- data.df.sub$LogFC
+names(data.gsea) <- as.character(data.df.sub$geneID)
+data.gsea <- sort(data.gsea, decreasing = TRUE)
+
+# run GSEA using the 'GSEA' function from clusterProfiler
+GSEA.res_H <- GSEA(data.gsea, TERM2GENE = hs_gsea_h, verbose = FALSE)
+GSEA.df_H <- as_tibble(GSEA.res_H@result)
+
+GSEA.res_C8 <- GSEA(data.gsea, TERM2GENE = hs_gsea_c8, verbose = FALSE)
+GSEA.df_C8 <- as_tibble(GSEA.res_C8@result)
+
+# view results as an interactive table
+
+GSEAtable_H <- datatable(
+  GSEA.df_H,
+  extensions = c('KeyTable', "FixedHeader"),
+  caption = 'Signatures enriched in hALI infected with Cp',
+  options = list(
+    keys = TRUE,
+    searchHighlight = TRUE,
+    pageLength = 10,
+    lengthMenu = c("10", "25", "50", "100")
+  )
+) %>%
+  formatRound(columns = c(2:10), digits = 2)
+
+GSEAtable_C8 <- datatable(
+  GSEA.df_C8,
+  extensions = c('KeyTable', "FixedHeader"),
+  caption = 'Signatures enriched in hALI infected with Cp',
+  options = list(
+    keys = TRUE,
+    searchHighlight = TRUE,
+    pageLength = 10,
+    lengthMenu = c("10", "25", "50", "100")
+  )
+) %>%
+  formatRound(columns = c(2:10), digits = 2)
+
+```
+
+```{r Functional Enrichment part 4 (enrich plot)}
+library(ggpubr)
+
+# create enrichment plots using the enrichplot package
+gseaplot_up <- gseaplot2(
+  GSEA.res_H,
+  geneSetID = order(GSEA.df_H$enrichmentScore, decreasing = T)[1:2],
+  pvalue_table = FALSE,
+  title = NULL,
+  ES_geom = "dot",
+  subplots = c(1, 2),
+  base_size = 20
+) %>%
+  ggpar(
+    legend = "none",
+    legend.title = "",
+    title = FALSE,
+    orientation = "vertical",
+    font.legend = 15,
+    font.ytickslab = 0,
+    ticks = FALSE
+  ) %>% 
+  print()
+```
+
+```{r}
+#Downregulated processes
+gseaplot_down <- gseaplot2(
+  GSEA.res_C8,
+  geneSetID = order(GSEA.df_C8$enrichmentScore, decreasing = F)[1:4],
+  pvalue_table = FALSE,
+  title = NULL,
+  ES_geom = "dot",
+  subplots = c(1, 2),
+  base_size = 20
+)  %>%
+  ggpar(
+    legend = "none",
+    legend.title = "",
+    title = FALSE,
+    orientation = "vertical",
+    font.legend = 15,
+    font.ytickslab = 0,
+    ticks = FALSE
+  ) %>% 
+  print()
+
+```
+
+```{r Functional Enrichment part 5 (Enrichment analysis using DOSE and Wang library)}
+library(DOSE)
+library(ggridges)
+library(org.Hs.eg.db)
+
+#Create gene symbol list
+symbols <- names(data.gsea)
+
+# use mapIds method to obtain Entrez IDs
+entrezid <- mapIds(org.Hs.eg.db, symbols, 'ENTREZID', 'SYMBOL')
+
+geneList <- data.gsea
+names(geneList) <- entrezid
+
+de <- names(geneList)[abs(data.gsea) > 2]
+
+edo <- enrichWP(de, organism = "Homo sapiens")
+#edo@result <- edo@result[c(1,4,9,11,18),]
+
+mutate(edo, qscore = -log(p.adjust, base = 20)) %>%
+  barplot(x = "qscore")
+
+edo2_WP <- gseWP(geneList, organism = "Homo sapiens")
+edo2_KEGG <- gseKEGG(geneList)
+
+edo_dot <- edo
+edo_dot@result <- edo@result[c(1, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 20), ]
+dotplot(edo_dot, showCategory = 20) + ggtitle("dotplot for ORA")
+```
+
+```{r}
+edo2_WP@result <-
+  edo2_WP@result[c(2, 4, 6, 8, 12, 18, 14, 17, 19, 20, 21, 23, 24, 25, 26, 32, 39, 29, 40, 41), ]
+dotplot(edo2_WP, showCategory = 20) +
+  ggtitle("dotplot for GSEA (WikiPathway)")
+```
+
+```{r}
+edo2_KEGG@result <-
+  edo2_KEGG@result[c(1, 3, 8, 9, 12, 13, 15, 16, 17, 18, 20, 21, 24, 27, 33, 35, 40, 45, 57, 58), ]
+dotplot(edo2_KEGG, showCategory = 20) +
+  ggtitle("dotplot for GSEA (KEGG)")
+```
+
+```{r}
+## convert gene ID to Symbol
+edox <- setReadable(edo, 'org.Hs.eg.db', 'ENTREZID')
+
+edox2 <- edox
+edox2@result <-
+  edox@result[which(
+    edox@result$Description %in% c(
+      'Type II interferon signaling',
+      'Type III interferon signaling',
+      'Cytosolic DNA-sensing pathway',
+      'Chemokine signaling pathway'
+    )
+  ),]
+
+cnetplot <- cnetplot(
+  edox2,
+  foldChange = geneList,
+  layout = 'fr',
+  circular = F,
+  colorEdge = TRUE,
+  showCategory = 5,
+  cex_label_gene = .8,
+  cex_label_category = .8
+) +
+  theme(text = element_text(size = 12))
+
+print(cnetplot)
+```
+
+------------------------------------------------------------------------
+
+# Session info
+
+The output from running 'sessionInfo' is shown below and details all packages and version necessary to reproduce the results in this report.
+
+```{r session info}
+sessionInfo()
+```
