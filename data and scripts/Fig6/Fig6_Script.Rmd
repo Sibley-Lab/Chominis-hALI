@@ -112,7 +112,8 @@ RV_plot <- ggbarplot(
   ggtheme = theme_minimal(base_size = 10)
 ) %>%
   ggpar(legend = 'none',
-        xlab = FALSE)
+        xlab = FALSE,
+        ylim = c(0,2000))
 
 RV_plot <- RV_plot +
   stat_pvalue_manual(
@@ -195,7 +196,8 @@ IFNL3_plot <- ggbarplot(
   legend.title = '',
   ggtheme = theme_minimal(base_size = 10)
 ) %>%
-  ggpar(legend = 'top') +
+  ggpar(legend = 'top',
+        ylim = c(0, 500)) +
   scale_fill_brewer(labels = c("No coinfection", expression(paste(
     "Coinfection with ", italic("C. parvum")
   ))),
@@ -387,11 +389,133 @@ vaccine_inhib_plot <- vaccine_inhib_plot +
 
 print(vaccine_inhib_plot)
 ```
-```{r}
+***
+
+# RV shedding
+
+## Data preparation
+
+```{r RV shedding data prep}
+dat_shed <- read.csv(file = 'mouse1_shed_res.csv', stringsAsFactors = F)
+dat_shed$time <- as.factor(dat_shed$time)
+dat_shed$group <- as.factor(dat_shed$group) %>% 
+  factor(levels = c('RV', 'Cp+RV'))
+```
+
+## Statistics
+
+```{r RV shedding statistics - Kruskal}
+shed_kruskal <- dat_shed %>% 
+  kruskal_test(shedding ~ group)
+
+datatable(shed_kruskal)
+```
+```{r RV shedding statistics - Dunn}
+shed_dunn <- subset(dat_shed, time != '1') %>% 
+  group_by(time) %>% 
+  dunn_test(shedding ~ group, p.adjust.method = "fdr") %>% 
+  add_significance() %>% 
+  add_y_position()
+
+shed_dunn$xmin <- shed_dunn$time
+shed_dunn$xmax <- shed_dunn$time
+
+datatable(shed_dunn)
+```
+
+## Plot
+
+```{r RV shedding plot}
+shed_plot <- ggline(
+  dat_shed,
+  'time',
+  'shedding',
+  color = 'group',
+  add = c('mean_se', 'jitter'),
+  add.params = list(
+    shape = 21,
+    fill = 'white',
+    jitter = 0.05,
+    size = 2
+  ),
+  ylab = 'RV (FFU/mg feces)',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10)
+) %>%
+  ggpar(
+    legend = 'none',
+    yscale = 'log10',
+    xlab = F,
+    ylim = c(10, 10000)
+  ) +
+  stat_pvalue_manual(
+    shed_dunn,
+    label = 'p.adj.signif',
+    hide.ns = T,
+    remove.bracket = T,
+    vjust = 0,
+    size = 5
+  ) +
+  scale_color_brewer(labels = c('RV',
+                                expression(paste(
+                                  "RV + ", italic('C. parvum')
+                                ))),
+                     palette = 'Paired')
+
+print(shed_plot)
+```
+
+***
+
+# Diarrhea
+
+## Data preparation
+
+```{r Mouse diarrhea prep}
+dat_diarrhea <- read.csv(file = 'mouse1_diarrhea_res.csv', stringsAsFactors = F)
+dat_diarrhea$time <- as.factor(dat_diarrhea$time)
+dat_diarrhea$group <- as.factor(dat_diarrhea$group) %>% 
+  factor(levels = c('RV', 'Cp+RV', 'Cp'))
+```
+
+## Plot
+
+```{r Mouse diarrhea plot}
+diarr_plot <- ggline(
+  dat_diarrhea,
+  'time',
+  'diarrhea',
+  color = 'group',
+  scales = 'free',
+  xlab = 'Time since RV infection (d)',
+  ylab = 'Diarrhea (%)',
+  legend.title = '',
+  ggtheme = theme_minimal(base_size = 10
+  )
+) %>%
+  ggpar(legend = 'top') +
+  scale_color_brewer(labels = c(
+    'RV',
+    expression(paste("RV + ", italic('C. parvum'))),
+    expression(paste(italic('C. parvum')))),
+    palette = 'Paired'
+  ) +
+  theme(axis.title.x = ggtext::element_markdown())
+
+
+print(diarr_plot)
+```
+
+***
+
+# Figure building
+
+```{r Figure building}
 layout <- '
-AAA
-BBC
-DDE
+AAAAAAAAAAAA
+BBBBBBBBCCCC
+DDDDDDDDEEEE
+FFFFFFFGGGGG
 '
 
 guide_area() + 
@@ -399,7 +523,9 @@ guide_area() +
   RV_plot + 
   vaccine_plot + 
   vaccine_inhib_plot + 
-  plot_layout(design = layout, guides = "collect") 
+  diarr_plot +
+  shed_plot +
+  plot_layout(design = layout, guides = "collect")
 ```
 
 
